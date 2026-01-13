@@ -414,7 +414,15 @@ if __name__ == "__main__":
     logger.info("=" * 60)
 
     try:
-        cron_loop()
+        start_scheduler()
+
+        # Main thread keeps service alive and updates health check
+        while not shutdown_event.is_set():
+            time.sleep(60)
+            update_health_check()
+
+        logger.info("Shutdown complete")
+
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt received")
         shutdown_event.set()
