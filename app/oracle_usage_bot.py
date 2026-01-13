@@ -131,6 +131,13 @@ def signal_handler(signum, frame):
     logger.info(f"Received {signal_name} signal, initiating graceful shutdown")
     shutdown_event.set()
 
+def job_listener(event):
+    """Log APScheduler job lifecycle events."""
+    if event.exception:
+        logger.error(f"Job {event.job_id} failed with exception: {event.exception}")
+    else:
+        logger.debug(f"Job {event.job_id} completed successfully")
+
 def get_cron_schedules():
     default_summary_cron = "0 0 * * 0"
     default_alert_cron = "0 0 * * *"
