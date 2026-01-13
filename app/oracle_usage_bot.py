@@ -9,7 +9,9 @@ import logging
 import threading
 from pathlib import Path
 from dotenv import load_dotenv
-from croniter import croniter
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
 from pydantic import ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -99,6 +101,16 @@ config = {
 # Health check file
 HEALTH_CHECK_FILE = Path("/tmp/ocm_healthy")
 shutdown_event = threading.Event()
+
+# Initialize APScheduler
+scheduler = BackgroundScheduler(
+    timezone='UTC',
+    job_defaults={
+        'coalesce': True,  # Combine multiple missed runs into one
+        'max_instances': 1,  # Prevent overlapping executions
+        'misfire_grace_time': 3600  # Run if missed within last hour
+    }
+)
 
 # Rate limiting settings
 API_CALL_DELAY = 3  # Seconds to wait between API calls
