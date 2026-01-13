@@ -66,14 +66,35 @@ class Settings(BaseSettings):
         return v
 
 
-# Configure structured logging
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+# Initialize settings with validation
+try:
+    settings = Settings()
+except ValidationError as e:
+    # Print errors to stderr before logging is configured
+    print("Configuration validation failed:", file=sys.stderr)
+    for error in e.errors():
+        field = '.'.join(str(loc) for loc in error['loc'])
+        msg = error['msg']
+        print(f"  - {field}: {msg}", file=sys.stderr)
+    print("\nPlease check your .env file and ensure all required fields are set.", file=sys.stderr)
+    sys.exit(1)
+
+# Configure logging after settings are loaded
 logging.basicConfig(
-    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    level=getattr(logging, settings.log_level, logging.INFO),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
+
+# Create Oracle Cloud config dict
+config = {
+    "user": settings.oci_user_ocid,
+    "key_file": "./key.pem",
+    "fingerprint": settings.oci_fingerprint,
+    "tenancy": settings.oci_tenancy_ocid,
+    "region": settings.oci_region,
+}
 
 # Health check file
 HEALTH_CHECK_FILE = Path("/tmp/ocm_healthy")
