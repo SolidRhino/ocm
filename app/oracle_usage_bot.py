@@ -350,55 +350,52 @@ def send_daily_limit_alert():
             logger.error("Failed to send error notification")
 
 
-def cron_loop():
-    """
-    Main loop that runs scheduled tasks with graceful shutdown support.
-    """
+def start_scheduler():
+    """Initialize and start the APScheduler with configured jobs."""
+    # Validate Oracle credentials before starting
     check_oracle_credentials()
+
+    # Get cron schedules from settings
     summary_cron, alert_cron = get_cron_schedules()
+
+    # Log configuration
     logger.info(f"Using SUMMARY_SCHEDULE: {summary_cron}")
     logger.info(f"Using DAILY_LIMIT_SCHEDULE: {alert_cron}")
     logger.info(f"API call delay: {API_CALL_DELAY}s between requests")
     logger.info(f"Rate limit retry: {MAX_RETRIES} attempts with {RETRY_DELAY}s base delay")
 
-    def run_cron(cron_expr, func, label):
-        now = datetime.datetime.now()
-        cron = croniter(cron_expr, now)
-        while not shutdown_event.is_set():
-            next_run = cron.get_next(datetime.datetime)
-            sleep_seconds = (next_run - datetime.datetime.now()).total_seconds()
-            logger.info(f"Next {label} check at {next_run} (in {sleep_seconds:.0f} seconds)")
+    # Add summary notification job
+    scheduler.add_job(
+        func=send_summary_notification,
+        trigger=CronTrigger.from_crontab(summary_cron, timezone='UTC'),
+        id='summary_job',
+        name='Weekly Usage Summary',
+        replace_existing=True
+    )
 
-            # Sleep in small chunks to allow responsive shutdown
-            sleep_end_time = time.time() + sleep_seconds
-            while time.time() < sleep_end_time and not shutdown_event.is_set():
-                time.sleep(min(60, sleep_end_time - time.time()))
-                if not shutdown_event.is_set():
-                    update_health_check()
+    # Add daily limit alert job
+    scheduler.add_job(
+        func=send_daily_limit_alert,
+        trigger=CronTrigger.from_crontab(alert_cron, timezone='UTC'),
+        id='alert_job',
+        name='Daily Limit Check',
+        replace_existing=True
+    )
 
-            if shutdown_event.is_set():
-                logger.info(f"{label} thread shutting down gracefully")
-                break
+    # Add event listener for job logging
+    scheduler.add_listener(job_listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
 
-            logger.info(f"⏰ Running {label} check...")
-            func()
-            logger.info(f"✓ {label} check completed")
+    # Start the scheduler
+    scheduler.start()
+    logger.info("Scheduler started successfully")
 
-    summary_thread = threading.Thread(target=run_cron, args=(summary_cron, send_summary_notification, "SUMMARY"), daemon=True)
-    alert_thread = threading.Thread(target=run_cron, args=(alert_cron, send_daily_limit_alert, "ALERT"), daemon=True)
-
-    summary_thread.start()
-    alert_thread.start()
-
-    # Main thread keeps service alive and updates health check
-    while not shutdown_event.is_set():
-        time.sleep(60)
-        update_health_check()
-
-    logger.info("Main thread shutting down, waiting for worker threads...")
-    summary_thread.join(timeout=5)
-    alert_thread.join(timeout=5)
-    logger.info("Shutdown complete")
+    # Log next run times
+    summary_job = scheduler.get_job('summary_job')
+    alert_job = scheduler.get_job('alert_job')
+    if summary_job:
+        logger.info(f"Next summary run: {summary_job.next_run_time}")
+    if alert_job:
+        logger.info(f"Next alert run: {alert_job.next_run_time}")
 
 
 if __name__ == "__main__":
