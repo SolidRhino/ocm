@@ -131,6 +131,12 @@ def signal_handler(signum, frame):
     logger.info(f"Received {signal_name} signal, initiating graceful shutdown")
     shutdown_event.set()
 
+    # Shutdown scheduler gracefully, waiting for running jobs to complete
+    if scheduler.running:
+        logger.info("Shutting down scheduler, waiting for running jobs to complete...")
+        scheduler.shutdown(wait=True)
+        logger.info("Scheduler shutdown complete")
+
 def job_listener(event):
     """Log APScheduler job lifecycle events."""
     if event.exception:
