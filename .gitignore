@@ -1,5 +1,9 @@
+# Ignore environment files and sensitive keys
 .env
 key.pem
+
+# Ignore Claude AI local files
+.claude/
 
 # Python
 __pycache__/
