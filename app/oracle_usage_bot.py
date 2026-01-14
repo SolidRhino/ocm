@@ -317,8 +317,8 @@ def job_listener(event):
 def get_cron_schedules():
     default_summary_cron = "0 0 * * 0"
     default_alert_cron = "0 0 * * *"
-    summary = SUMMARY_SCHEDULE or default_summary_cron
-    daily_limit = DAILY_LIMIT_SCHEDULE or default_alert_cron
+    summary = settings.summary_schedule or default_summary_cron
+    daily_limit = settings.daily_limit_schedule or default_alert_cron
     return summary, daily_limit
 
 def check_oracle_credentials():
