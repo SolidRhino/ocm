@@ -12,11 +12,147 @@ from dotenv import load_dotenv
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
-from pydantic import ValidationError, field_validator
+from typing import Optional
+from abc import ABC, abstractmethod
+from pydantic import ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from apprise import Apprise, NotifyType
 
 load_dotenv()
 
+
+# ============================================================================
+# Apprise Backend Abstraction
+# ============================================================================
+
+class AppriseBackend(ABC):
+    """Abstract base class for Apprise notification backends."""
+
+    @abstractmethod
+    def send_notification(self, title: str, body: str, notification_type: str) -> bool:
+        """Send notification via this backend.
+
+        Args:
+            title: Notification title
+            body: Notification body/message
+            notification_type: One of "info", "success", "warning", "failure"
+
+        Returns:
+            True if notification sent successfully, False otherwise
+        """
+        pass
+
+
+class AppriseServerBackend(AppriseBackend):
+    """REST API backend for Apprise server (existing implementation)."""
+
+    def __init__(self, url: str, key: str):
+        self.url = url
+        self.key = key
+        self.logger = logging.getLogger(__name__)
+
+    def send_notification(self, title: str, body: str, notification_type: str) -> bool:
+        """Send notification to Apprise server via REST API."""
+        try:
+            response = requests.post(
+                f"{self.url}/notify/{self.key}",
+                json={
+                    "title": title,
+                    "body": body,
+                    "type": notification_type
+                },
+                timeout=10
+            )
+            response.raise_for_status()
+            self.logger.info(f"Notification sent successfully: {title}")
+            return True
+        except requests.RequestException as e:
+            self.logger.error(f"Failed to send notification via server: {e}")
+            return False
+
+
+class AppriseModuleBackend(AppriseBackend):
+    """Python module backend using apprise library directly."""
+
+    # Map string types to apprise NotifyType enum
+    TYPE_MAPPING = {
+        "info": NotifyType.INFO,
+        "success": NotifyType.SUCCESS,
+        "warning": NotifyType.WARNING,
+        "failure": NotifyType.FAILURE,
+    }
+
+    def __init__(self, services: str):
+        """Initialize with comma-separated service URLs.
+
+        Args:
+            services: Comma-separated Apprise service URLs
+                     Example: "discord://webhook_id/token,mailto://user:pass@smtp.com"
+        """
+        self.apprise = Apprise()
+        self.logger = logging.getLogger(__name__)
+
+        # Parse and add services
+        service_list = [s.strip() for s in services.split(',') if s.strip()]
+        for service_url in service_list:
+            if not self.apprise.add(service_url):
+                raise ValueError(f"Invalid Apprise service URL: {service_url}")
+
+        if len(self.apprise) == 0:
+            raise ValueError("No valid Apprise services configured")
+
+        self.logger.info(f"Initialized Apprise module with {len(self.apprise)} service(s)")
+
+    def send_notification(self, title: str, body: str, notification_type: str) -> bool:
+        """Send notification via apprise Python module."""
+        try:
+            notify_type = self.TYPE_MAPPING.get(notification_type, NotifyType.INFO)
+            success = self.apprise.notify(
+                title=title,
+                body=body,
+                notify_type=notify_type
+            )
+            if success:
+                self.logger.info(f"Notification sent successfully: {title}")
+            else:
+                self.logger.error(f"Failed to send notification: {title}")
+            return success
+        except Exception as e:
+            self.logger.error(f"Failed to send notification via module: {e}")
+            return False
+
+
+def create_apprise_backend(settings) -> AppriseBackend:
+    """Create appropriate Apprise backend based on configuration.
+
+    Args:
+        settings: Settings object with apprise configuration
+
+    Returns:
+        AppriseBackend instance (Server or Module)
+
+    Raises:
+        ValueError: If mode is invalid or required settings missing
+    """
+    mode = settings.apprise_mode.lower()
+
+    if mode == "server":
+        if not settings.apprise_url or not settings.apprise_key:
+            raise ValueError("Server mode requires APPRISE_URL and APPRISE_KEY")
+        return AppriseServerBackend(settings.apprise_url, settings.apprise_key)
+
+    elif mode == "module":
+        if not settings.apprise_services:
+            raise ValueError("Module mode requires APPRISE_SERVICES")
+        return AppriseModuleBackend(settings.apprise_services)
+
+    else:
+        raise ValueError(f"Invalid APPRISE_MODE: {mode}. Must be 'server' or 'module'")
+
+
+# ============================================================================
+# Application Configuration
+# ============================================================================
 
 class Settings(BaseSettings):
     """Application configuration loaded from environment variables."""
@@ -27,9 +163,15 @@ class Settings(BaseSettings):
     oci_fingerprint: str
     oci_region: str
 
-    # Required Apprise configuration
-    apprise_url: str
-    apprise_key: str
+    # Apprise mode selection (REQUIRED)
+    apprise_mode: str
+
+    # Server mode settings
+    apprise_url: Optional[str] = None
+    apprise_key: Optional[str] = None
+
+    # Module mode settings
+    apprise_services: Optional[str] = None
 
     # Optional thresholds with defaults
     min_daily_usage: float = 0.0
@@ -59,13 +201,33 @@ class Settings(BaseSettings):
             raise ValueError(f'must be one of: {", ".join(valid_levels)}')
         return v_upper
 
+    @field_validator('apprise_mode')
+    @classmethod
+    def validate_apprise_mode(cls, v: str) -> str:
+        """Validate apprise_mode is 'server' or 'module'."""
+        valid_modes = ['server', 'module']
+        if v.lower() not in valid_modes:
+            raise ValueError(f"apprise_mode must be one of {valid_modes}, got: {v}")
+        return v.lower()
+
     @field_validator('apprise_url')
     @classmethod
-    def validate_apprise_url(cls, v: str) -> str:
+    def validate_apprise_url(cls, v: Optional[str]) -> Optional[str]:
         """Validate Apprise URL format."""
-        if not (v.startswith('http://') or v.startswith('https://')):
+        if v is not None and not (v.startswith('http://') or v.startswith('https://')):
             raise ValueError('must start with http:// or https://')
         return v
+
+    @model_validator(mode='after')
+    def validate_apprise_config(self) -> 'Settings':
+        """Validate mode-specific configuration is present."""
+        if self.apprise_mode == 'server':
+            if not self.apprise_url or not self.apprise_key:
+                raise ValueError("Server mode requires APPRISE_URL and APPRISE_KEY")
+        elif self.apprise_mode == 'module':
+            if not self.apprise_services:
+                raise ValueError("Module mode requires APPRISE_SERVICES")
+        return self
 
 
 # Initialize settings with validation
@@ -97,6 +259,14 @@ config = {
     "tenancy": settings.oci_tenancy_ocid,
     "region": settings.oci_region,
 }
+
+# Initialize Apprise backend based on mode
+try:
+    apprise_backend = create_apprise_backend(settings)
+    logger.info(f"Apprise backend initialized in {settings.apprise_mode} mode")
+except ValueError as e:
+    logger.error(f"Failed to initialize Apprise backend: {e}")
+    sys.exit(1)
 
 # Health check file
 HEALTH_CHECK_FILE = Path("/tmp/ocm_healthy")
@@ -220,13 +390,19 @@ def get_usage(start_time, end_time, granularity, retry_count=0):
 
 
 def send_apprise_notification(daily, weekly, monthly, yearly, alert=False, limit=None):
-    """
-    Send notification via Apprise API with proper error handling.
-    """
-    if not settings.apprise_url or not settings.apprise_key:
-        logger.error("APPRISE_URL and APPRISE_KEY must be configured")
-        return False
+    """Send notification via configured Apprise backend with proper error handling.
 
+    Args:
+        daily: Daily usage amount
+        weekly: Weekly usage amount
+        monthly: Monthly usage amount
+        yearly: Yearly usage amount
+        alert: If True, send alert notification; otherwise send summary
+        limit: Usage limit for alert notifications
+
+    Returns:
+        True if notification sent successfully, False otherwise
+    """
     if alert:
         title = "🚨 Oracle Cloud Usage Limit Exceeded!"
         body = f"Your daily usage is higher than your limit {settings.currency}{limit:.2f}!\n\n"
@@ -241,26 +417,13 @@ def send_apprise_notification(daily, weekly, monthly, yearly, alert=False, limit
         body += f"📈 Annually: {settings.currency}{yearly:.2f}"
         notification_type = "info"
 
-    apprise_endpoint = f"{settings.apprise_url}/notify/{settings.apprise_key}"
-    payload = {
-        "title": title,
-        "body": body,
-        "type": notification_type,
-        "format": "text"
-    }
+    # Send via configured backend (server or module)
+    success = apprise_backend.send_notification(title, body, notification_type)
 
-    try:
-        response = requests.post(apprise_endpoint, json=payload, timeout=10)
-        if response.status_code not in (200, 204):
-            logger.error(f"Failed to send Apprise notification: {response.status_code} {response.text}")
-            return False
-        else:
-            logger.info(f"✅ Apprise notification sent successfully: {title}")
-            update_health_check()
-            return True
-    except Exception as e:
-        logger.error(f"Exception sending notification: {e}")
-        return False
+    if success:
+        update_health_check()
+
+    return success
 
 
 def send_summary_notification():

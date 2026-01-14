@@ -85,10 +85,13 @@ docker run -d \
    - Configurable via `SUMMARY_SCHEDULE` and `DAILY_LIMIT_SCHEDULE` environment variables
 
 3. **Apprise Notifications** (`send_apprise_notification()`)
-   - Sends notifications to Apprise server via REST API
+   - **Dual-mode support**: Server mode (REST API) or Module mode (Python library)
+   - **Mode selection**: Configured via `APPRISE_MODE` environment variable
+   - **Server mode**: Sends to Apprise server, which routes to configured services
+   - **Module mode**: Direct service communication via apprise Python library
    - Summary reports include daily, weekly, monthly, and yearly usage with "info" type
    - Alert notifications trigger when daily usage >= MIN_DAILY_USAGE with "failure" type
-   - Apprise server routes notifications to configured services (Discord, Slack, etc.)
+   - Notification backend abstraction ensures consistent behavior across modes
 
 ### APScheduler Configuration
 
@@ -112,6 +115,11 @@ docker run -d \
 ### Configuration Flow
 
 - Environment variables loaded via `python-dotenv` from `.env` file (root directory)
+- Apprise mode selected via `APPRISE_MODE` (server or module)
+- Server mode: `APPRISE_URL` and `APPRISE_KEY` required
+- Module mode: `APPRISE_SERVICES` (comma-separated URLs) required
+- Backend validation on startup via `create_apprise_backend()`
+- Configuration errors cause immediate startup failure with clear error messages
 - Oracle Cloud credentials configured in `config` dict (user OCID, tenancy OCID, fingerprint, region)
 - Private key location:
   - Local development: `./key.pem` relative to app directory
@@ -144,7 +152,8 @@ docker run -d \
 ### Key Dependencies
 
 - **oci**: Oracle Cloud Infrastructure Python SDK
-- **requests**: Apprise API HTTP calls
+- **requests**: HTTP calls for server mode Apprise API
+- **apprise**: Python notification library for module mode (80+ services)
 - **APScheduler**: Production-ready job scheduling with misfire handling
 - **python-dotenv**: Environment variable management
 - **logging**: Structured logging (Python stdlib)

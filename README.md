@@ -63,8 +63,10 @@ docker run -d \
 | `OCI_TENANCY_OCID`    | Yes      | Oracle Cloud Tenancy OCID                                                   | `ocid1.tenancy.oc1..xxxx` |
 | `OCI_FINGERPRINT`     | Yes      | API Key fingerprint                                                         | `12:34:56:78:90:ab:cd:ef` |
 | `OCI_REGION`          | Yes      | Oracle Cloud region                                                         | `us-ashburn-1`            |
-| `APPRISE_URL`         | Yes      | Apprise server URL                                                          | `http://apprise:8000`     |
-| `APPRISE_KEY`         | Yes      | Apprise configuration key (created in Apprise web UI)                       | `oracle-alerts`           |
+| `APPRISE_MODE`        | Yes      | Notification mode: `server` or `module`                                     | `server`                  |
+| `APPRISE_URL`         | If mode=server | Apprise server URL                                                    | `http://apprise:8000`     |
+| `APPRISE_KEY`         | If mode=server | Apprise configuration key (created in Apprise web UI)                 | `oracle-alerts`           |
+| `APPRISE_SERVICES`    | If mode=module | Comma-separated list of service URLs                                  | `discord://xxx,slack://yyy` |
 | `MIN_DAILY_USAGE`     | No       | Minimum daily usage to trigger a notification (float, in your currency)     | `0`                       |
 | `MAX_DAILY_USAGE`     | No       | Maximum daily usage to trigger an alert (float, in your currency)           | `0`                       |
 | `CURRENCY`            | No       | Currency symbol for notifications                                           | `$`                       |
@@ -75,41 +77,72 @@ docker run -d \
 
 ---
 
-## Apprise Server Setup
+## Notification Configuration
 
-This bot requires a running Apprise server to send notifications. If you don't have one already:
+This bot supports two modes for sending notifications:
 
-### 1. Deploy Apprise Server
+### Option 1: Apprise Server Mode (Recommended for Multiple Bots)
+
+Use this if you want centralized notification management with a web UI.
+
+**1. Deploy Apprise Server**:
 ```bash
 docker run -d -p 8000:8000 --name apprise caronc/apprise
 ```
 
-Or use docker-compose:
-```yaml
-services:
-  apprise:
-    image: caronc/apprise
-    container_name: apprise
-    restart: unless-stopped
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./apprise-config:/config
+**2. Configure Notifications**:
+- Access Apprise web UI at `http://your-apprise-server:8000`
+- Create a configuration with a memorable KEY (e.g., "oracle-alerts")
+- Add notification URLs for your services (Discord, Slack, email, etc.)
+
+**3. Configure Bot** (`.env`):
+```bash
+APPRISE_MODE=server
+APPRISE_URL=http://apprise:8000
+APPRISE_KEY=oracle-alerts
 ```
 
-### 2. Configure Notification Services
-1. Access the Apprise web UI at `http://your-server:8000`
-2. Create a new configuration with a KEY (e.g., `oracle-alerts`)
-3. Add your notification service URLs:
-   - **Discord**: `discord://webhook_id/webhook_token`
-   - **Slack**: `slack://tokenA/tokenB/tokenC`
-   - **Email**: `mailto://user:password@gmail.com`
-   - **And 100+ other services**
+**Advantages**:
+- Change notification destinations without redeploying bot
+- Centralized management for multiple bots
+- Web UI for configuration
 
-For all supported services and URL formats, see: https://github.com/caronc/apprise/wiki
+### Option 2: Module Mode (Simple Deployment)
 
-### 3. Update Your Environment Variables
-Set `APPRISE_URL` to your Apprise server URL and `APPRISE_KEY` to the configuration key you created.
+Use this if you want a self-contained bot without external dependencies.
+
+**1. Find Service URLs**:
+- Visit https://github.com/caronc/apprise/wiki
+- Get URL format for your services (Discord, Slack, email, etc.)
+- Example Discord: `discord://webhook_id/webhook_token`
+
+**2. Configure Bot** (`.env`):
+```bash
+APPRISE_MODE=module
+APPRISE_SERVICES=discord://webhook_id/token,mailto://user:pass@smtp.com
+```
+
+**Advantages**:
+- No separate Apprise server needed
+- Simpler deployment (one container)
+- Direct service communication
+
+**Note**: To change notification destinations in module mode, you must update `.env` and restart the bot.
+
+## Migration Guide
+
+### Existing Deployments (Server Mode)
+
+If you're already using Apprise server mode, add one line to your `.env`:
+
+```bash
+APPRISE_MODE=server
+```
+
+Then restart:
+```bash
+docker-compose --profile ocm restart
+```
 
 ---
 

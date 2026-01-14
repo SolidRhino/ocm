@@ -4,4 +4,5 @@ requests
 croniter
 APScheduler>=3.10,<4.0
 pydantic>=2.0,<3.0
-pydantic-settings>=2.0,<3.0 
+pydantic-settings>=2.0,<3.0
+apprise>=1.7.0,<2.0 
