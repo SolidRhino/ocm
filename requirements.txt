@@ -1,4 +1,0 @@
-oci
-python-dotenv
-requests
-croniter 
