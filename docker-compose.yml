@@ -2,7 +2,7 @@ services:
   ocm:
     # Oracle Cloud Monitor - supports both Apprise server and module modes
     # Configure mode via APPRISE_MODE in .env file
-    # image: ghcr.io/iamneur0/ocm:latest
+    # image: ghcr.io/SolidRhino/ocm:latest
     build:
       context: ./app
       dockerfile: Dockerfile
