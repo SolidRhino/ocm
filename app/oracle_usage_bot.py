@@ -223,25 +223,25 @@ def send_apprise_notification(daily, weekly, monthly, yearly, alert=False, limit
     """
     Send notification via Apprise API with proper error handling.
     """
-    if not APPRISE_URL or not APPRISE_KEY:
+    if not settings.apprise_url or not settings.apprise_key:
         logger.error("APPRISE_URL and APPRISE_KEY must be configured")
         return False
 
     if alert:
         title = "🚨 Oracle Cloud Usage Limit Exceeded!"
-        body = f"Your daily usage is higher than your limit {CURRENCY}{limit:.2f}!\n\n"
-        body += f"Daily Usage: {CURRENCY}{daily:.2f}"
+        body = f"Your daily usage is higher than your limit {settings.currency}{limit:.2f}!\n\n"
+        body += f"Daily Usage: {settings.currency}{daily:.2f}"
         notification_type = "failure"
     else:
         title = "📊 Oracle Cloud Usage Report"
         body = "Here is your Oracle Cloud usage summary:\n\n"
-        body += f"📊 Daily Usage: {CURRENCY}{daily:.2f}\n"
-        body += f"📅 Weekly: {CURRENCY}{weekly:.2f}\n"
-        body += f"📆 Monthly: {CURRENCY}{monthly:.2f}\n"
-        body += f"📈 Annually: {CURRENCY}{yearly:.2f}"
+        body += f"📊 Daily Usage: {settings.currency}{daily:.2f}\n"
+        body += f"📅 Weekly: {settings.currency}{weekly:.2f}\n"
+        body += f"📆 Monthly: {settings.currency}{monthly:.2f}\n"
+        body += f"📈 Annually: {settings.currency}{yearly:.2f}"
         notification_type = "info"
 
-    apprise_endpoint = f"{APPRISE_URL}/notify/{APPRISE_KEY}"
+    apprise_endpoint = f"{settings.apprise_url}/notify/{settings.apprise_key}"
     payload = {
         "title": title,
         "body": body,
@@ -285,22 +285,22 @@ def send_summary_notification():
 
         # Fetch daily usage
         daily = get_usage(start_of_today, start_of_tomorrow, "DAILY")
-        logger.info(f"Daily usage fetched: {CURRENCY}{daily:.2f}")
+        logger.info(f"Daily usage fetched: {settings.currency}{daily:.2f}")
         time.sleep(API_CALL_DELAY)  # Rate limiting delay
 
         # Fetch weekly usage
         weekly = get_usage(start_of_week, start_of_next_week, "DAILY")
-        logger.info(f"Weekly usage fetched: {CURRENCY}{weekly:.2f}")
+        logger.info(f"Weekly usage fetched: {settings.currency}{weekly:.2f}")
         time.sleep(API_CALL_DELAY)  # Rate limiting delay
 
         # Fetch monthly usage
         monthly = get_usage(start_of_month, start_of_next_month, "MONTHLY")
-        logger.info(f"Monthly usage fetched: {CURRENCY}{monthly:.2f}")
+        logger.info(f"Monthly usage fetched: {settings.currency}{monthly:.2f}")
         time.sleep(API_CALL_DELAY)  # Rate limiting delay
 
         # Fetch yearly usage
         yearly = get_usage(start_of_year, start_of_next_year, "MONTHLY")
-        logger.info(f"Yearly usage fetched: {CURRENCY}{yearly:.2f}")
+        logger.info(f"Yearly usage fetched: {settings.currency}{yearly:.2f}")
 
         # Send notification
         logger.info("Sending summary notification...")
@@ -316,7 +316,7 @@ def send_summary_notification():
                 "body": f"Error fetching Oracle Cloud usage (summary): {str(e)[:200]}",
                 "type": "failure"
             }
-            requests.post(f"{APPRISE_URL}/notify/{APPRISE_KEY}", json=payload, timeout=10)
+            requests.post(f"{settings.apprise_url}/notify/{settings.apprise_key}", json=payload, timeout=10)
         except:
             logger.error("Failed to send error notification")
 
@@ -332,11 +332,11 @@ def send_daily_limit_alert():
 
         logger.info("Checking daily usage limit...")
         daily = get_usage(start_of_today, start_of_tomorrow, "DAILY")
-        logger.info(f"Daily usage: {CURRENCY}{daily:.2f}, Limit: {CURRENCY}{MIN_DAILY_USAGE:.2f}")
+        logger.info(f"Daily usage: {settings.currency}{daily:.2f}, Limit: {settings.currency}{settings.min_daily_usage:.2f}")
 
-        if daily >= MIN_DAILY_USAGE:
-            logger.warning(f"Daily usage {CURRENCY}{daily:.2f} exceeds limit {CURRENCY}{MIN_DAILY_USAGE:.2f}")
-            send_apprise_notification(daily, None, None, None, alert=True, limit=MIN_DAILY_USAGE)
+        if daily >= settings.min_daily_usage:
+            logger.warning(f"Daily usage {settings.currency}{daily:.2f} exceeds limit {settings.currency}{settings.min_daily_usage:.2f}")
+            send_apprise_notification(daily, None, None, None, alert=True, limit=settings.min_daily_usage)
         else:
             logger.info("Daily usage is within limits")
 
@@ -351,7 +351,7 @@ def send_daily_limit_alert():
                 "body": f"Error checking daily usage limit: {str(e)[:200]}",
                 "type": "failure"
             }
-            requests.post(f"{APPRISE_URL}/notify/{APPRISE_KEY}", json=payload, timeout=10)
+            requests.post(f"{settings.apprise_url}/notify/{settings.apprise_key}", json=payload, timeout=10)
         except:
             logger.error("Failed to send error notification")
 
